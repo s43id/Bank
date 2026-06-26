@@ -28,8 +28,11 @@ class AppRepository(private val db: AppDatabase) {
     suspend fun processSms(senderNumber: String, messageBody: String, timestamp: Long) {
         val banks = db.bankDao().getAllBanksOnce()
         val bank = banks.firstOrNull { b ->
-            senderNumber.contains(b.senderNumber.trim(), ignoreCase = true) ||
-                    b.senderNumber.trim().contains(senderNumber, ignoreCase = true)
+            val id = b.senderNumber.trim()
+            id.isNotEmpty() && (
+                senderNumber.contains(id, ignoreCase = true) ||
+                id.contains(senderNumber, ignoreCase = true)
+            )
         } ?: return
 
         val parsed = SmsParser.parse(messageBody) ?: return
@@ -72,8 +75,11 @@ class AppRepository(private val db: AppDatabase) {
                 val date = it.getLong(dateIdx)
 
                 val bank = banks.firstOrNull { b ->
-                    address.contains(b.senderNumber.trim(), ignoreCase = true) ||
-                            b.senderNumber.trim().contains(address, ignoreCase = true)
+                    val id = b.senderNumber.trim()
+                    id.isNotEmpty() && (
+                        address.contains(id, ignoreCase = true) ||
+                        id.contains(address, ignoreCase = true)
+                    )
                 } ?: continue
 
                 val parsed = SmsParser.parse(body) ?: continue
