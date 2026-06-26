@@ -1,5 +1,6 @@
 package com.banktracker.ui.banks
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -16,6 +17,31 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.banktracker.data.model.Bank
+
+data class CommonBank(val name: String, val senderNumber: String)
+
+val commonIranianBanks = listOf(
+    CommonBank("بانک ملی ایران", "bmi"),
+    CommonBank("بانک ملت", "BankMellat"),
+    CommonBank("بانک صادرات ایران", "Bank-Saderat"),
+    CommonBank("بانک تجارت", "Tejarat"),
+    CommonBank("بانک رفاه کارگران", "Refah"),
+    CommonBank("بانک سپه", "banksepah"),
+    CommonBank("بانک کشاورزی", "agri-bank"),
+    CommonBank("بانک مسکن", "bank-maskan"),
+    CommonBank("بانک پارسیان", "parsian"),
+    CommonBank("بانک پاسارگاد", "pasargad"),
+    CommonBank("بانک سامان", "saman"),
+    CommonBank("بانک آینده", "AyandehBank"),
+    CommonBank("بانک اقتصاد نوین", "EN-Bank"),
+    CommonBank("بانک شهر", "shahr-bank"),
+    CommonBank("بانک دی", "DeyBank"),
+    CommonBank("بانک ایران زمین", "IranZamin"),
+    CommonBank("پست بانک ایران", "postbank"),
+    CommonBank("بانک قرض‌الحسنه مهر ایران", "MehrIran"),
+    CommonBank("بانک کارآفرین", "karafarin"),
+    CommonBank("بانک خاورمیانه", "middleeast"),
+)
 
 @Composable
 fun BanksScreen(vm: BanksViewModel = viewModel()) {
@@ -120,9 +146,12 @@ fun BankCard(bank: Bank, onEdit: () -> Unit, onDelete: () -> Unit) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(bank.name, fontWeight = FontWeight.SemiBold)
                 Text(
-                    bank.senderNumber,
+                    if (bank.senderNumber.isBlank()) "سرشماره ثبت نشده" else bank.senderNumber,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = if (bank.senderNumber.isBlank())
+                        MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
+                    else
+                        MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             Row {
@@ -147,12 +176,50 @@ fun BankDialog(
 ) {
     var name by remember { mutableStateOf(initialName) }
     var number by remember { mutableStateOf(initialNumber) }
+    var showCommonBanks by remember { mutableStateOf(false) }
+
+    if (showCommonBanks) {
+        AlertDialog(
+            onDismissRequest = { showCommonBanks = false },
+            title = { Text("انتخاب بانک رایج") },
+            text = {
+                LazyColumn {
+                    items(commonIranianBanks) { bank ->
+                        ListItem(
+                            headlineContent = { Text(bank.name) },
+                            supportingContent = {
+                                Text(
+                                    bank.senderNumber,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            },
+                            modifier = Modifier.clickable {
+                                name = bank.name
+                                number = bank.senderNumber
+                                showCommonBanks = false
+                            }
+                        )
+                        HorizontalDivider()
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { showCommonBanks = false }) { Text("انصراف") } }
+        )
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedButton(
+                    onClick = { showCommonBanks = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("انتخاب از لیست بانک‌های رایج")
+                }
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
@@ -164,17 +231,25 @@ fun BankDialog(
                 OutlinedTextField(
                     value = number,
                     onValueChange = { number = it },
-                    label = { Text("سرشماره پیامک") },
-                    placeholder = { Text("مثلاً: 021-4020") },
+                    label = { Text("سرشماره یا شناسه پیامک (اختیاری)") },
+                    placeholder = { Text("مثلاً: BankMellat یا 021-4020") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
+                if (number.isBlank()) {
+                    Text(
+                        "اگر سرشماره را ندارید، آن را خالی بگذارید. " +
+                                "می‌توانید بعداً از روی پیامک‌های دریافتی پیدا کنید.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         },
         confirmButton = {
             Button(
-                onClick = { if (name.isNotBlank() && number.isNotBlank()) onConfirm(name, number) },
-                enabled = name.isNotBlank() && number.isNotBlank()
+                onClick = { if (name.isNotBlank()) onConfirm(name, number) },
+                enabled = name.isNotBlank()
             ) { Text("ذخیره") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("انصراف") } }
