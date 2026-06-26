@@ -8,6 +8,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -16,47 +17,69 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.banktracker.util.JalaliUtil
 
 @Composable
-fun DashboardScreen(vm: DashboardViewModel = viewModel()) {
+fun DashboardScreen(
+    onOpenSmsPicker: () -> Unit = {},
+    vm: DashboardViewModel = viewModel()
+) {
     val todayStats by vm.todayStats.collectAsState()
     val yesterdayStats by vm.yesterdayStats.collectAsState()
     val selectedStats by vm.selectedStats.collectAsState()
     val availableDates by vm.availableDates.collectAsState()
     val selectedDate by vm.selectedDate.collectAsState()
+    val importResult by vm.importResult.collectAsState()
     var showDateDialog by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        item {
-            Text("داشبورد", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+    LaunchedEffect(importResult) {
+        importResult?.let {
+            snackbarHostState.showSnackbar(if (it > 0) "$it تراکنش جدید وارد شد" else "تراکنش جدیدی پیدا نشد")
+            vm.clearImportResult()
         }
+    }
 
-        item {
-            DayCard(stats = todayStats, containerColor = MaterialTheme.colorScheme.primaryContainer)
-        }
+    Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }) { scaffoldPadding ->
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(scaffoldPadding).padding(horizontal = 16.dp),
+            contentPadding = PaddingValues(vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            item {
+                Text("داشبورد", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            }
 
-        item {
-            DayCard(stats = yesterdayStats, containerColor = MaterialTheme.colorScheme.secondaryContainer)
-        }
+            item {
+                DayCard(stats = todayStats, containerColor = MaterialTheme.colorScheme.primaryContainer)
+            }
 
-        item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("انتخاب روز دیگر", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-                        OutlinedButton(onClick = { showDateDialog = true }) {
-                            Text(JalaliUtil.toPrettyDate(selectedDate), fontSize = 13.sp)
+            item {
+                DayCard(stats = yesterdayStats, containerColor = MaterialTheme.colorScheme.secondaryContainer)
+            }
+
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("انتخاب روز دیگر", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                            OutlinedButton(onClick = { showDateDialog = true }) {
+                                Text(JalaliUtil.toPrettyDate(selectedDate), fontSize = 13.sp)
+                            }
                         }
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
+                        StatsRow(stats = selectedStats)
                     }
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
-                    StatsRow(stats = selectedStats)
                 }
+            }
+
+            item {
+                ImportCard(
+                    onImportSince = { ms -> vm.importSince(context.contentResolver, ms) },
+                    onOpenPicker = onOpenSmsPicker
+                )
             }
         }
     }
@@ -68,6 +91,41 @@ fun DashboardScreen(vm: DashboardViewModel = viewModel()) {
             onSelect = { vm.selectDate(it); showDateDialog = false },
             onDismiss = { showDateDialog = false }
         )
+    }
+}
+
+@Composable
+fun ImportCard(onImportSince: (Long) -> Unit, onOpenPicker: () -> Unit) {
+    val now = System.currentTimeMillis()
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("وارد کردن پیامک‌های بانکی", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+            Text(
+                "پیامک‌های اینباکس را بررسی کنید و تراکنش‌ها را وارد کنید",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            HorizontalDivider()
+            Text("وارد کردن خودکار:", style = MaterialTheme.typography.labelMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = { onImportSince(now - 24 * 60 * 60 * 1000L) },
+                    modifier = Modifier.weight(1f)
+                ) { Text("۱ روز", fontSize = 12.sp) }
+                OutlinedButton(
+                    onClick = { onImportSince(now - 7 * 24 * 60 * 60 * 1000L) },
+                    modifier = Modifier.weight(1f)
+                ) { Text("۱ هفته", fontSize = 12.sp) }
+                OutlinedButton(
+                    onClick = { onImportSince(now - 30 * 24 * 60 * 60 * 1000L) },
+                    modifier = Modifier.weight(1f)
+                ) { Text("۱ ماه", fontSize = 12.sp) }
+            }
+            HorizontalDivider()
+            Button(onClick = onOpenPicker, modifier = Modifier.fillMaxWidth()) {
+                Text("انتخاب دستی پیامک‌ها")
+            }
+        }
     }
 }
 
