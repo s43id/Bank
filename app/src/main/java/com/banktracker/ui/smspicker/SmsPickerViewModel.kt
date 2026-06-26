@@ -6,58 +6,50 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.banktracker.data.db.AppDatabase
 import com.banktracker.data.repository.AppRepository
-import com.banktracker.data.repository.SmsItem
+import com.banktracker.data.repository.SmsThread
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-sealed class SmsPickerState {
-    object Idle : SmsPickerState()
-    object Loading : SmsPickerState()
-    data class Loaded(val items: List<SmsItem>) : SmsPickerState()
-    data class Imported(val count: Int) : SmsPickerState()
-}
-
 class SmsPickerViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repo = AppRepository(AppDatabase.getInstance(application))
 
-    private val _state = MutableStateFlow<SmsPickerState>(SmsPickerState.Idle)
-    val state: StateFlow<SmsPickerState> = _state.asStateFlow()
+    private val _threads = MutableStateFlow<List<SmsThread>>(emptyList())
+    val threads: StateFlow<List<SmsThread>> = _threads.asStateFlow()
 
-    private val _selected = MutableStateFlow<Set<Long>>(emptySet())
-    val selected: StateFlow<Set<Long>> = _selected.asStateFlow()
+    private val _loading = MutableStateFlow(true)
+    val loading: StateFlow<Boolean> = _loading.asStateFlow()
 
-    fun loadSms(contentResolver: ContentResolver) {
-        _state.value = SmsPickerState.Loading
+    private val _selected = MutableStateFlow<Set<String>>(emptySet())
+    val selected: StateFlow<Set<String>> = _selected.asStateFlow()
+
+    private val _importedCount = MutableStateFlow<Int?>(null)
+    val importedCount: StateFlow<Int?> = _importedCount.asStateFlow()
+
+    fun load(contentResolver: ContentResolver) {
         viewModelScope.launch {
-            val items = repo.listBankSms(contentResolver)
-            _state.value = SmsPickerState.Loaded(items)
-            _selected.value = emptySet()
+            _loading.value = true
+            _threads.value = repo.listAllThreads(contentResolver)
+            _loading.value = false
         }
     }
 
-    fun toggleSelection(index: Long) {
-        val current = _selected.value.toMutableSet()
-        if (index in current) current.remove(index) else current.add(index)
-        _selected.value = current
+    fun toggle(address: String) {
+        val cur = _selected.value.toMutableSet()
+        if (address in cur) cur.remove(address) else cur.add(address)
+        _selected.value = cur
     }
 
-    fun selectAll(items: List<SmsItem>) {
-        _selected.value = items.indices.map { it.toLong() }.toSet()
-    }
-
-    fun clearSelection() {
-        _selected.value = emptySet()
-    }
-
-    fun importSelected(contentResolver: ContentResolver, items: List<SmsItem>) {
-        val toImport = _selected.value.map { items[it.toInt()] }
-        if (toImport.isEmpty()) return
+    fun import(contentResolver: ContentResolver, sinceMs: Long) {
+        val addresses = _selected.value
+        if (addresses.isEmpty()) return
         viewModelScope.launch {
-            val count = repo.importSmsItems(contentResolver, toImport)
-            _state.value = SmsPickerState.Imported(count)
+            val count = repo.importThreads(contentResolver, addresses, sinceMs)
+            _importedCount.value = count
         }
     }
+
+    fun clearResult() { _importedCount.value = null }
 }

@@ -3,10 +3,9 @@ package com.banktracker.ui.smspicker
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -16,109 +15,98 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.banktracker.data.repository.SmsItem
+import com.banktracker.data.repository.SmsThread
 import com.banktracker.util.JalaliUtil
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SmsPickerScreen(onBack: () -> Unit, vm: SmsPickerViewModel = viewModel()) {
     val context = LocalContext.current
-    val state by vm.state.collectAsState()
+    val threads by vm.threads.collectAsState()
+    val loading by vm.loading.collectAsState()
     val selected by vm.selected.collectAsState()
+    val importedCount by vm.importedCount.collectAsState()
 
-    LaunchedEffect(Unit) { vm.loadSms(context.contentResolver) }
+    var showRangeDialog by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
 
-    var showImportedSnack by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(Unit) { vm.load(context.contentResolver) }
 
-    LaunchedEffect(state) {
-        if (state is SmsPickerState.Imported) {
-            showImportedSnack = (state as SmsPickerState.Imported).count
+    LaunchedEffect(importedCount) {
+        importedCount?.let {
+            snackbarHostState.showSnackbar(
+                if (it > 0) "$it تراکنش جدید وارد شد" else "تراکنش جدیدی پیدا نشد"
+            )
+            vm.clearResult()
+            onBack()
         }
     }
 
-    val snackbarHostState = remember { SnackbarHostState() }
-    LaunchedEffect(showImportedSnack) {
-        showImportedSnack?.let {
-            snackbarHostState.showSnackbar("$it پیامک وارد شد")
-            onBack()
-        }
+    if (showRangeDialog) {
+        DateRangeDialog(
+            onSelect = { sinceMs ->
+                showRangeDialog = false
+                vm.import(context.contentResolver, sinceMs)
+            },
+            onDismiss = { showRangeDialog = false }
+        )
     }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text("انتخاب پیامک‌های بانکی") },
+                title = { Text("انتخاب مکالمات SMS") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "بازگشت")
-                    }
-                },
-                actions = {
-                    if (state is SmsPickerState.Loaded) {
-                        val items = (state as SmsPickerState.Loaded).items
-                        if (selected.size == items.size) {
-                            TextButton(onClick = { vm.clearSelection() }) { Text("هیچکدام") }
-                        } else {
-                            TextButton(onClick = { vm.selectAll(items) }) { Text("همه") }
-                        }
                     }
                 }
             )
         },
         bottomBar = {
-            if (state is SmsPickerState.Loaded && selected.isNotEmpty()) {
-                val items = (state as SmsPickerState.Loaded).items
+            if (selected.isNotEmpty()) {
                 Surface(tonalElevation = 3.dp) {
                     Button(
-                        onClick = { vm.importSelected(context.contentResolver, items) },
+                        onClick = { showRangeDialog = true },
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(16.dp)
                     ) {
-                        Text("وارد کردن ${selected.size} پیامک انتخاب‌شده")
+                        Text("وارد کردن از ${selected.size} مکالمه انتخاب‌شده")
                     }
                 }
             }
         }
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
-            when (val s = state) {
-                is SmsPickerState.Idle, is SmsPickerState.Loading -> {
-                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+            when {
+                loading -> CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                threads.isEmpty() -> {
+                    Text(
+                        "هیچ پیامکی در اینباکس پیدا نشد",
+                        modifier = Modifier.align(Alignment.Center)
+                    )
                 }
-                is SmsPickerState.Loaded -> {
-                    if (s.items.isEmpty()) {
-                        Column(
-                            modifier = Modifier.align(Alignment.Center),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text("هیچ پیامک بانکی پیدا نشد")
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                "ابتدا بانک‌های خود را با سرشماره در تب «بانک‌ها» اضافه کنید",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    } else {
+                else -> {
+                    Column {
+                        Text(
+                            "مکالمات بانکی خود را انتخاب کنید",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
                         LazyColumn(contentPadding = PaddingValues(bottom = 80.dp)) {
-                            itemsIndexed(s.items) { idx, sms ->
-                                SmsPickerItem(
-                                    sms = sms,
-                                    isSelected = idx.toLong() in selected,
-                                    onClick = { vm.toggleSelection(idx.toLong()) }
+                            items(threads, key = { it.address }) { thread ->
+                                ThreadItem(
+                                    thread = thread,
+                                    isSelected = thread.address in selected,
+                                    onClick = { vm.toggle(thread.address) }
                                 )
-                                HorizontalDivider()
+                                HorizontalDivider(modifier = Modifier.padding(start = 72.dp))
                             }
                         }
                     }
-                }
-                is SmsPickerState.Imported -> {
-                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
                 }
             }
         }
@@ -126,48 +114,85 @@ fun SmsPickerScreen(onBack: () -> Unit, vm: SmsPickerViewModel = viewModel()) {
 }
 
 @Composable
-fun SmsPickerItem(sms: SmsItem, isSelected: Boolean, onClick: () -> Unit) {
-    val timeStr = remember(sms.date) {
-        SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(sms.date))
-    }
+fun ThreadItem(thread: SmsThread, isSelected: Boolean, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        if (isSelected) {
-            Icon(
-                Icons.Default.CheckCircle,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(24.dp)
-            )
-        } else {
-            RadioButton(selected = false, onClick = onClick, modifier = Modifier.size(24.dp))
-        }
-        Spacer(modifier = Modifier.width(12.dp))
+        Checkbox(
+            checked = isSelected,
+            onCheckedChange = { onClick() },
+            modifier = Modifier.size(24.dp)
+        )
+        Spacer(modifier = Modifier.width(16.dp))
         Column(modifier = Modifier.weight(1f)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(sms.bankName, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
                 Text(
-                    "${JalaliUtil.timestampToJalaliDate(sms.date)}  $timeStr",
+                    thread.displayName,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    JalaliUtil.timestampToJalaliDate(thread.lastDate),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             Spacer(modifier = Modifier.height(2.dp))
             Text(
-                sms.preview,
+                thread.lastMessage,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                "${thread.messageCount} پیامک",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline
             )
         }
     }
+}
+
+@Composable
+fun DateRangeDialog(onSelect: (Long) -> Unit, onDismiss: () -> Unit) {
+    val now = System.currentTimeMillis()
+    val options = listOf(
+        "۱ روز اخیر" to now - 24 * 60 * 60 * 1000L,
+        "۳ روز اخیر" to now - 3 * 24 * 60 * 60 * 1000L,
+        "۱ هفته اخیر" to now - 7 * 24 * 60 * 60 * 1000L,
+        "۱ ماه اخیر" to now - 30 * 24 * 60 * 60 * 1000L,
+        "همه پیامک‌ها" to 0L,
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("چه بازه‌ای وارد شود؟") },
+        text = {
+            Column {
+                options.forEach { (label, sinceMs) ->
+                    TextButton(
+                        onClick = { onSelect(sinceMs) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(label, style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("انصراف") } }
+    )
 }

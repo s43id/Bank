@@ -8,7 +8,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -26,19 +25,9 @@ fun DashboardScreen(
     val selectedStats by vm.selectedStats.collectAsState()
     val availableDates by vm.availableDates.collectAsState()
     val selectedDate by vm.selectedDate.collectAsState()
-    val importResult by vm.importResult.collectAsState()
     var showDateDialog by remember { mutableStateOf(false) }
-    val context = LocalContext.current
-    val snackbarHostState = remember { SnackbarHostState() }
 
-    LaunchedEffect(importResult) {
-        importResult?.let {
-            snackbarHostState.showSnackbar(if (it > 0) "$it تراکنش جدید وارد شد" else "تراکنش جدیدی پیدا نشد")
-            vm.clearImportResult()
-        }
-    }
-
-    Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }) { scaffoldPadding ->
+    Scaffold { scaffoldPadding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(scaffoldPadding).padding(horizontal = 16.dp),
             contentPadding = PaddingValues(vertical = 16.dp),
@@ -76,10 +65,12 @@ fun DashboardScreen(
             }
 
             item {
-                ImportCard(
-                    onImportSince = { ms -> vm.importSince(context.contentResolver, ms) },
-                    onOpenPicker = onOpenSmsPicker
-                )
+                Button(
+                    onClick = onOpenSmsPicker,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("وارد کردن پیامک‌های بانکی")
+                }
             }
         }
     }
@@ -94,40 +85,6 @@ fun DashboardScreen(
     }
 }
 
-@Composable
-fun ImportCard(onImportSince: (Long) -> Unit, onOpenPicker: () -> Unit) {
-    val now = System.currentTimeMillis()
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("وارد کردن پیامک‌های بانکی", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-            Text(
-                "پیامک‌های اینباکس را بررسی کنید و تراکنش‌ها را وارد کنید",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            HorizontalDivider()
-            Text("وارد کردن خودکار:", style = MaterialTheme.typography.labelMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(
-                    onClick = { onImportSince(now - 24 * 60 * 60 * 1000L) },
-                    modifier = Modifier.weight(1f)
-                ) { Text("۱ روز", fontSize = 12.sp) }
-                OutlinedButton(
-                    onClick = { onImportSince(now - 7 * 24 * 60 * 60 * 1000L) },
-                    modifier = Modifier.weight(1f)
-                ) { Text("۱ هفته", fontSize = 12.sp) }
-                OutlinedButton(
-                    onClick = { onImportSince(now - 30 * 24 * 60 * 60 * 1000L) },
-                    modifier = Modifier.weight(1f)
-                ) { Text("۱ ماه", fontSize = 12.sp) }
-            }
-            HorizontalDivider()
-            Button(onClick = onOpenPicker, modifier = Modifier.fillMaxWidth()) {
-                Text("انتخاب دستی پیامک‌ها")
-            }
-        }
-    }
-}
 
 @Composable
 fun DayCard(stats: DayStats, containerColor: Color) {

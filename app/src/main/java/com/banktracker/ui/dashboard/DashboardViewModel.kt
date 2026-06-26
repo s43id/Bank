@@ -1,7 +1,6 @@
 package com.banktracker.ui.dashboard
 
 import android.app.Application
-import android.content.ContentResolver
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.banktracker.data.db.AppDatabase
@@ -53,15 +52,4 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun selectDate(date: String) { _selectedDate.value = date }
 
-    private val _importResult = MutableStateFlow<Int?>(null)
-    val importResult: StateFlow<Int?> = _importResult.asStateFlow()
-
-    fun importSince(contentResolver: ContentResolver, sinceMs: Long) {
-        viewModelScope.launch {
-            val count = repo.scanInbox(contentResolver, sinceMs)
-            _importResult.value = count
-        }
-    }
-
-    fun clearImportResult() { _importResult.value = null }
 }
