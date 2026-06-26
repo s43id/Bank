@@ -11,6 +11,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 
+data class SmsItem(
+    val address: String,
+    val body: String,
+    val date: Long,
+    val bankName: String,
+    val bankId: Long,
+    val preview: String = body.take(80).replace('\n', ' ')
+)
+
 class AppRepository(private val db: AppDatabase) {
 
     val allBanks: Flow<List<Bank>> = db.bankDao().getAllBanks()
@@ -52,54 +61,71 @@ class AppRepository(private val db: AppDatabase) {
         db.transactionDao().insert(tx)
     }
 
-    suspend fun scanInbox(contentResolver: ContentResolver) = withContext(Dispatchers.IO) {
-        val banks = db.bankDao().getAllBanksOnce()
-        if (banks.isEmpty()) return@withContext 0
+    suspend fun listBankSms(contentResolver: ContentResolver, sinceMs: Long = 0L): List<SmsItem> =
+        withContext(Dispatchers.IO) {
+            val banks = db.bankDao().getAllBanksOnce().filter { it.senderNumber.isNotBlank() }
+            if (banks.isEmpty()) return@withContext emptyList()
 
-        val uri = Uri.parse("content://sms/inbox")
-        val cursor = contentResolver.query(
-            uri,
-            arrayOf("address", "body", "date"),
-            null, null, "date DESC"
-        )
+            val uri = Uri.parse("content://sms/inbox")
+            val selection = if (sinceMs > 0) "date >= ?" else null
+            val selectionArgs = if (sinceMs > 0) arrayOf(sinceMs.toString()) else null
 
-        var count = 0
-        cursor?.use {
-            val addrIdx = it.getColumnIndex("address")
-            val bodyIdx = it.getColumnIndex("body")
-            val dateIdx = it.getColumnIndex("date")
+            val cursor = contentResolver.query(
+                uri,
+                arrayOf("address", "body", "date"),
+                selection, selectionArgs, "date DESC"
+            )
 
-            while (it.moveToNext()) {
-                val address = it.getString(addrIdx)?.trim() ?: continue
-                val body = it.getString(bodyIdx) ?: continue
-                val date = it.getLong(dateIdx)
+            val result = mutableListOf<SmsItem>()
+            cursor?.use {
+                val addrIdx = it.getColumnIndex("address")
+                val bodyIdx = it.getColumnIndex("body")
+                val dateIdx = it.getColumnIndex("date")
 
-                val bank = banks.firstOrNull { b ->
-                    val id = b.senderNumber.trim()
-                    id.isNotEmpty() && (
-                        address.contains(id, ignoreCase = true) ||
-                        id.contains(address, ignoreCase = true)
-                    )
-                } ?: continue
+                while (it.moveToNext()) {
+                    val address = it.getString(addrIdx)?.trim() ?: continue
+                    val body = it.getString(bodyIdx) ?: continue
+                    val date = it.getLong(dateIdx)
 
-                val parsed = SmsParser.parse(body) ?: continue
+                    val bank = banks.firstOrNull { b ->
+                        val id = b.senderNumber.trim()
+                        address.contains(id, ignoreCase = true) || id.contains(address, ignoreCase = true)
+                    } ?: continue
 
-                val existing = db.transactionDao().findDuplicate(date, body)
+                    SmsParser.parse(body) ?: continue
+
+                    result.add(SmsItem(address, body, date, bank.name, bank.id))
+                }
+            }
+            result
+        }
+
+    suspend fun importSmsItems(contentResolver: ContentResolver, items: List<SmsItem>): Int =
+        withContext(Dispatchers.IO) {
+            var count = 0
+            for (item in items) {
+                val existing = db.transactionDao().findDuplicate(item.date, item.body)
                 if (existing != null) continue
-
-                val tx = Transaction(
-                    bankName = bank.name,
-                    senderNumber = address,
-                    amount = parsed.first,
-                    type = parsed.second,
-                    rawMessage = body,
-                    timestamp = date,
-                    jalaliDate = JalaliUtil.timestampToJalaliDate(date)
+                val parsed = SmsParser.parse(item.body) ?: continue
+                db.transactionDao().insert(
+                    Transaction(
+                        bankName = item.bankName,
+                        senderNumber = item.address,
+                        amount = parsed.first,
+                        type = parsed.second,
+                        rawMessage = item.body,
+                        timestamp = item.date,
+                        jalaliDate = JalaliUtil.timestampToJalaliDate(item.date)
+                    )
                 )
-                db.transactionDao().insert(tx)
                 count++
             }
+            count
         }
-        count
-    }
+
+    suspend fun scanInbox(contentResolver: ContentResolver, sinceMs: Long = 0L): Int =
+        withContext(Dispatchers.IO) {
+            val items = listBankSms(contentResolver, sinceMs)
+            importSmsItems(contentResolver, items)
+        }
 }
