@@ -118,6 +118,9 @@ class AppRepository(private val db: AppDatabase) {
         count
     }
 
+    suspend fun scanInbox(contentResolver: ContentResolver, sinceMs: Long = 0L): Int =
+        importThreads(contentResolver, listAllThreads(contentResolver).map { it.address }.toSet(), sinceMs)
+
     suspend fun processSms(senderNumber: String, messageBody: String, timestamp: Long) {
         val banks = db.bankDao().getAllBanksOnce()
         val bank = banks.firstOrNull { b ->
